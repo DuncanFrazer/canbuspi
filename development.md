@@ -61,6 +61,8 @@ The goal is to intelligently control rear camera power based on vehicle state to
 - **Python-can**: gives socketcan access on Pi.
 - **Manual tagging**: helps correlate CAN data with driver actions.
 - **Systemd service**: ensures auto-start on boot.
+- **Real-time web viewer**: Server-Sent Events (SSE) for live CAN message streaming at 20Hz.
+- **MQB message decoder**: Automatic decoding of known VW Golf MK7 messages.
 
 ## References
 - **MQB-sniffer**: https://github.com/mrfixpl/MQB-sniffer

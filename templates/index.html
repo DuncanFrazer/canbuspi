@@ -1,30 +1,187 @@
 
 <!DOCTYPE html>
 <html>
-<head><title>CANBus Pi</title></head>
+<head>
+    <title>CANBus Pi</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        h1 { color: #333; }
+        .section { background: white; padding: 15px; margin: 10px 0; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        button { padding: 10px 20px; margin: 5px; font-size: 14px; cursor: pointer; border: none; border-radius: 4px; background: #4CAF50; color: white; }
+        button:hover { background: #45a049; }
+        button.stop { background: #f44336; }
+        button.stop:hover { background: #da190b; }
+        #status { display: inline-block; padding: 5px 10px; border-radius: 3px; margin-left: 10px; }
+        #status.active { background: #4CAF50; color: white; }
+        #status.inactive { background: #ccc; color: #666; }
+        #messages { font-family: 'Courier New', monospace; font-size: 12px; max-height: 500px; overflow-y: auto; background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 4px; }
+        .msg { padding: 2px 0; border-bottom: 1px solid #333; }
+        .msg-id { color: #569cd6; font-weight: bold; }
+        .msg-data { color: #ce9178; }
+        .msg-decoded { color: #4ec9b0; margin-left: 10px; }
+        .msg-time { color: #858585; font-size: 10px; }
+        .controls { display: flex; gap: 10px; flex-wrap: wrap; }
+        .stat { display: inline-block; margin-right: 20px; padding: 5px 10px; background: #e3f2fd; border-radius: 3px; }
+    </style>
+</head>
 <body>
-<h1>CANBus Pi Controller</h1>
+    <h1>CANBus Pi Controller</h1>
 
-<h2>Logging</h2>
-<button onclick="fetch('/start_log',{method:'POST'}).then(()=>alert('Log started'))">Start Log</button>
-<button onclick="fetch('/stop_log',{method:'POST'}).then(()=>alert('Log stopped'))">Stop Log</button>
+    <div class="section">
+        <h2>Logging <span id="status" class="inactive">Stopped</span></h2>
+        <div class="controls">
+            <button id="startBtn" onclick="startLog()">Start Log</button>
+            <button class="stop" id="stopBtn" onclick="stopLog()">Stop Log</button>
+        </div>
+    </div>
 
-<h2>Actions</h2>
-<button onclick="send('lock')">Lock</button>
-<button onclick="send('unlock')">Unlock</button>
-<button onclick="send('drive')">Drive</button>
-<button onclick="send('neutral')">Neutral</button>
-<button onclick="send('reverse')">Reverse</button>
-<button onclick="send('park')">Park</button>
+    <div class="section">
+        <h2>Tag Actions</h2>
+        <div class="controls">
+            <button onclick="send('lock')">🔒 Lock</button>
+            <button onclick="send('unlock')">🔓 Unlock</button>
+            <button onclick="send('drive')">D Drive</button>
+            <button onclick="send('neutral')">N Neutral</button>
+            <button onclick="send('reverse')">R Reverse</button>
+            <button onclick="send('park')">P Park</button>
+        </div>
+    </div>
 
-<script>
-function send(ev){
-  fetch('/action',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({event:ev})
-  });
-}
-</script>
+    <div class="section">
+        <h2>Live CAN Messages</h2>
+        <div style="margin-bottom: 10px;">
+            <span class="stat">Rate: <span id="msgRate">0</span> msg/s</span>
+            <span class="stat">Total: <span id="msgCount">0</span></span>
+            <button onclick="clearMessages()" style="background: #ff9800;">Clear</button>
+            <label><input type="checkbox" id="autoscroll" checked> Auto-scroll</label>
+        </div>
+        <div id="messages"></div>
+    </div>
+
+    <script>
+        let msgCount = 0;
+        let lastCount = 0;
+        let eventSource = null;
+
+        function send(ev){
+            fetch('/action',{
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({event:ev})
+            });
+            addSystemMessage('Event tagged: ' + ev);
+        }
+
+        function startLog() {
+            fetch('/start_log',{method:'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    if(data.status === 'started') {
+                        document.getElementById('status').textContent = 'Running';
+                        document.getElementById('status').className = 'active';
+                        addSystemMessage('Logging started');
+                        startStream();
+                    } else {
+                        alert('Error: ' + (data.message || data.status));
+                    }
+                });
+        }
+
+        function stopLog() {
+            fetch('/stop_log',{method:'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('status').textContent = 'Stopped';
+                    document.getElementById('status').className = 'inactive';
+                    addSystemMessage('Logging stopped');
+                    stopStream();
+                });
+        }
+
+        function startStream() {
+            if(eventSource) return;
+            eventSource = new EventSource('/stream');
+            eventSource.onmessage = function(e) {
+                try {
+                    const msg = JSON.parse(e.data);
+                    addMessage(msg);
+                } catch(err) {
+                    console.error('Parse error:', err);
+                }
+            };
+            eventSource.onerror = function(e) {
+                console.error('Stream error:', e);
+            };
+        }
+
+        function stopStream() {
+            if(eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        }
+
+        function addMessage(msg) {
+            const container = document.getElementById('messages');
+            const div = document.createElement('div');
+            div.className = 'msg';
+            
+            const time = new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', {hour12:false, fractionalSecondDigits: 3});
+            
+            div.innerHTML = `<span class="msg-time">${time}</span> <span class="msg-id">${msg.id}</span> [${msg.dlc}] <span class="msg-data">${msg.data}</span>${msg.decoded ? '<span class="msg-decoded">→ ' + msg.decoded + '</span>' : ''}`;
+            
+            container.appendChild(div);
+            msgCount++;
+            document.getElementById('msgCount').textContent = msgCount;
+            
+            // Auto-scroll
+            if(document.getElementById('autoscroll').checked) {
+                container.scrollTop = container.scrollHeight;
+            }
+            
+            // Limit displayed messages
+            while(container.children.length > 1000) {
+                container.removeChild(container.firstChild);
+            }
+        }
+
+        function addSystemMessage(text) {
+            const container = document.getElementById('messages');
+            const div = document.createElement('div');
+            div.className = 'msg';
+            div.style.color = '#ffa500';
+            div.innerHTML = `<span class="msg-time">${new Date().toLocaleTimeString('en-US', {hour12:false})}</span> <b>SYSTEM:</b> ${text}`;
+            container.appendChild(div);
+            if(document.getElementById('autoscroll').checked) {
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+
+        function clearMessages() {
+            document.getElementById('messages').innerHTML = '';
+            msgCount = 0;
+            lastCount = 0;
+            document.getElementById('msgCount').textContent = '0';
+            document.getElementById('msgRate').textContent = '0';
+        }
+
+        // Update message rate every second
+        setInterval(() => {
+            const rate = msgCount - lastCount;
+            document.getElementById('msgRate').textContent = rate;
+            lastCount = msgCount;
+        }, 1000);
+
+        // Check status on load
+        fetch('/status')
+            .then(r => r.json())
+            .then(data => {
+                if(data.logging_active) {
+                    document.getElementById('status').textContent = 'Running';
+                    document.getElementById('status').className = 'active';
+                    startStream();
+                }
+            });
+    </script>
 </body>
 </html>

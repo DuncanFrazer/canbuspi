@@ -4,11 +4,13 @@
 This project provides a Raspberry Pi–based CAN bus sniffer and manual event logging tool, with a browser‑based UI.
 
 ## Main Capabilities
-- Start/stop data logging
-- Tag actions (lock/unlock/gear selection)
-- Live CAN message viewer (placeholder)
-- Automatic WiFi connection & persistent hostname
+- Start/stop data logging to CSV
+- Real-time CAN message viewer with 20Hz updates
+- Automatic message decoding (RPM, gear position, gearbox mode, ambient light)
+- Manual event tagging (lock/unlock/gear selection)
+- Message rate monitoring and statistics
 - Flask-powered local web UI
+- Background CAN capture with threading
 
 ## Setup
 
