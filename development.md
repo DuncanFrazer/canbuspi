@@ -3,6 +3,28 @@
 
 A structured summary of project goals and reasoning.
 
+## Current Status (as of Nov 25, 2025)
+**Project Phase:** CAN Research & Development  
+**Hardware:** Raspberry Pi with MCP2515 CAN interface connected via SPI  
+**Deployment:** Pi at IP `192.168.68.78`, user `duncan`, password `trudi`  
+**Interface:** Web UI at http://192.168.68.78:5000  
+
+**What's Working:**
+✅ CAN bus capture from `can0` interface (500 kbps, 11-bit ID)  
+✅ Real-time message viewer with 20Hz SSE streaming  
+✅ CSV logging to `/home/duncan/canlogs/current_log.csv`  
+✅ Manual event tagging via web UI  
+✅ Automatic MQB message decoding (RPM, gear, gearbox mode, ambient light)  
+✅ Tested with Arduino test device at ~720 Hz message rate  
+
+**Deployment Process:**
+1. Edit code locally in `/Users/duncan/source/canbuspi`
+2. Run `./deploy.sh` to copy files to Pi via sshpass
+3. SSH to Pi: `ssh duncan@192.168.68.78 -l duncan`
+4. Start app: `cd /home/duncan/canbuspi && python3 app.py`
+
+**Repository:** https://github.com/DuncanFrazer/canbuspi (main branch)
+
 ## Origins
 Initially the system used Arduino (UNO + MCP2515) to sniff a VW Golf CAN bus. As message rates increased, attention shifted to a Raspberry Pi for logging, processing and an integrated control UI.
 
@@ -94,15 +116,26 @@ The goal is to intelligently control rear camera power based on vehicle state to
 - Request: `714 03 22 22 4D`
 - Response: `77E 04 62 22 4D [XX]` where `XX` = 0-255 brightness
 
-## Future Work
-- Add CSV rotation
-- Add frontend plotting
-- Add CAN‑Tx replay sandbox
-- Implement message decoder for known MQB IDs
-- Add real-time parsing of RPM, gear position, etc.
+## Next Steps (Priority Order)
+1. **Deploy in vehicle** - Connect Pi to VW Golf CAN bus and capture real traffic
+2. **Identify speed messages** - Find and decode vehicle speed CAN IDs
+3. **Identify lock/unlock messages** - Find door lock state indicators
+4. **Find camera messages** - Monitor camera startup, heartbeat, and error codes
+5. **Implement message injection** - Use python-can to send spoofed camera messages
+6. **Add GPIO relay control** - Control camera power from Pi (or coordinate with existing ESP32)
+7. **Port to ESP32** - Migrate proven logic to production ESP32 platform
 
-### Camera Control Features (Development Roadmap)
-**Phase 1: CAN Research (Pi)**
+## Future Enhancements
+- Add CSV log rotation
+- Add frontend plotting/visualization
+- Add CAN message replay capability
+- Implement filtering by message ID
+- Add message frequency analysis tools
+- Create DBC file for Golf MK7
+
+## Camera Control Features (Development Roadmap)
+**Phase 1: CAN Research (Pi)** ← CURRENT PHASE
+- [ ] Deploy Pi in vehicle and capture real CAN traffic
 - [ ] Decode vehicle speed from CAN bus
 - [ ] Decode lock/unlock status from CAN bus
 - [ ] Sniff and identify camera heartbeat/status messages
@@ -121,3 +154,39 @@ The goal is to intelligently control rear camera power based on vehicle state to
 - [ ] Replace timer-based logic with intelligent state-based control
 - [ ] Validate long-term stability (24/7 operation)
 - [ ] Deploy as replacement for current ESP32 system
+
+## Technical Notes
+
+### File Structure
+```
+/Users/duncan/source/canbuspi/     # Local development
+├── app.py                          # Flask server + CAN capture
+├── templates/index.html            # Web UI with real-time viewer
+├── deploy.sh                       # Deployment script (uses sshpass)
+├── README.md                       # Setup instructions
+└── development.md                  # This file
+
+/home/duncan/canbuspi/              # Pi deployment location
+├── app.py
+├── templates/index.html
+└── /home/duncan/canlogs/           # Log storage
+    └── current_log.csv
+```
+
+### Key Code Components
+- **can_logger_thread()**: Background thread capturing CAN messages
+- **decode_mqb_message()**: Decodes known VW Golf MK7 message patterns
+- **/stream endpoint**: Server-Sent Events for real-time browser updates
+- **recent_messages[]**: Circular buffer (1000 messages) for live view
+
+### Hardware Setup
+- **Pi Configuration**: Raspberry Pi with MCP2515 CAN hat
+- **CAN Interface**: `can0` @ 500kbps, 11-bit ID, ISO 15765-4 standard
+- **Network**: Pi accessible via WiFi at `192.168.68.78`
+- **Test Device**: Arduino with MCP2515 sending `0x100` messages at 720 Hz
+
+### Known Issues / Limitations
+- Log files don't auto-rotate (will grow indefinitely)
+- No systemd service configured yet (manual start required)
+- No authentication on web interface
+- SSE stream continues even after logging stops (harmless but inefficient)
