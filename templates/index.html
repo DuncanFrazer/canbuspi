@@ -1,0 +1,30 @@
+
+<!DOCTYPE html>
+<html>
+<head><title>CANBus Pi</title></head>
+<body>
+<h1>CANBus Pi Controller</h1>
+
+<h2>Logging</h2>
+<button onclick="fetch('/start_log',{method:'POST'}).then(()=>alert('Log started'))">Start Log</button>
+<button onclick="fetch('/stop_log',{method:'POST'}).then(()=>alert('Log stopped'))">Stop Log</button>
+
+<h2>Actions</h2>
+<button onclick="send('lock')">Lock</button>
+<button onclick="send('unlock')">Unlock</button>
+<button onclick="send('drive')">Drive</button>
+<button onclick="send('neutral')">Neutral</button>
+<button onclick="send('reverse')">Reverse</button>
+<button onclick="send('park')">Park</button>
+
+<script>
+function send(ev){
+  fetch('/action',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({event:ev})
+  });
+}
+</script>
+</body>
+</html>
