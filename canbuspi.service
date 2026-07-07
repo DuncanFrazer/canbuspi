@@ -1,0 +1,14 @@
+[Unit]
+Description=CANBus Pi Logger
+After=network.target
+
+[Service]
+Type=simple
+User=duncan
+WorkingDirectory=/home/duncan/canbuspi
+ExecStart=/usr/bin/python3 /home/duncan/canbuspi/app.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
