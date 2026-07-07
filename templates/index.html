@@ -33,6 +33,7 @@
             <button id="startBtn" onclick="startLog()">Start Log</button>
             <button class="stop" id="stopBtn" onclick="stopLog()">Stop Log</button>
         </div>
+        <div id="logFile" style="margin-top: 10px; font-size: 12px; color: #666;"></div>
     </div>
 
     <div class="section">
@@ -44,6 +45,9 @@
             <button onclick="send('neutral')">N Neutral</button>
             <button onclick="send('reverse')">R Reverse</button>
             <button onclick="send('park')">P Park</button>
+            <button onclick="send('park_pilot_button_toggle_on')">🅿️ Park Pilot Toggle ON</button>
+            <button onclick="send('park_pilot_button_toggle_off')">🅿️ Park Pilot Toggle OFF</button>
+            <button onclick="send('camera_stow')">📷 Camera Stow</button>
         </div>
     </div>
 
@@ -79,6 +83,9 @@
                     if(data.status === 'started') {
                         document.getElementById('status').textContent = 'Running';
                         document.getElementById('status').className = 'active';
+                        if(data.log_file) {
+                            document.getElementById('logFile').textContent = 'Log: ' + data.log_file.split('/').pop();
+                        }
                         addSystemMessage('Logging started');
                         startStream();
                     } else {
@@ -93,6 +100,7 @@
                 .then(data => {
                     document.getElementById('status').textContent = 'Stopped';
                     document.getElementById('status').className = 'inactive';
+                    document.getElementById('logFile').textContent = '';
                     addSystemMessage('Logging stopped');
                     stopStream();
                 });
