@@ -5,6 +5,7 @@ import threading
 import can
 import os
 import serial
+import json
 
 app = Flask(__name__)
 logging_active = False
@@ -60,15 +61,20 @@ def write_event(event):
 
 def can_logger_thread():
     """Background thread that captures CAN messages"""
+    # Discard any buffered messages before logging starts
+    while can_bus.recv(timeout=0) is not None:
+        pass
+
     while logging_active:
         try:
             msg = can_bus.recv(timeout=1.0)
             if msg and csv_writer_can:
                 msg_id = f"0x{msg.arbitration_id:X}"
                 data_hex = msg.data.hex()
+                ts = time.time()
 
                 csv_writer_can.writerow([
-                    msg.timestamp,
+                    ts, # use locally generated timestamp for consistency
                     "CAN",
                     msg_id,
                     msg.dlc,
@@ -79,9 +85,8 @@ def can_logger_thread():
 
                 # Add to recent messages for live view
                 decoded = decode_mqb_message(msg_id, data_hex)
-                import json
                 msg_data = {
-                    "timestamp": msg.timestamp,
+                    "timestamp": ts,
                     "id": msg_id,
                     "dlc": msg.dlc,
                     "data": data_hex,
