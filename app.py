@@ -6,6 +6,7 @@ import can
 import os
 import serial
 import json
+import itertools
 
 app = Flask(__name__)
 logging_active = False
@@ -26,9 +27,26 @@ ESP32_SERIAL_PORT = "/dev/ttyACM0"
 ESP32_BAUD_RATE = 115200
 LOG_DIR = "/home/duncan/canlogs"
 
-# Store recent messages for live view (circular buffer)
-recent_messages = []
-MAX_RECENT_MESSAGES = 1000
+# ============================================================
+# LIVE STREAM BUFFER
+# ============================================================
+# Sequence-numbered buffer so the SSE stream can track "what's new"
+# correctly even after old entries are trimmed. Using list length as
+# a position pointer breaks once the buffer is full and trimming
+# starts (length stops changing), so a monotonic seq is used instead.
+seq_counter = itertools.count(1)
+recent_messages = []      # list of dicts, each has a 'seq' key
+MAX_RECENT_MESSAGES = 200
+
+def push_message(msg_type, payload):
+    """Add an entry to the live stream buffer. Used for both CAN
+    frames and manual event tags so both appear live in the UI."""
+    entry = {"seq": next(seq_counter), "type": msg_type}
+    entry.update(payload)
+    recent_messages.append(entry)
+    if len(recent_messages) > MAX_RECENT_MESSAGES:
+        recent_messages.pop(0)
+    return entry
 
 # ============================================================
 # HELPERS
@@ -46,7 +64,8 @@ def ensure_log_directory():
     os.makedirs(LOG_DIR, exist_ok=True)
 
 def write_event(event):
-    """Write a manual event tag to both log files simultaneously"""
+    """Write a manual event tag to both log files, and push it to
+    the live stream so it appears immediately in the Event window."""
     ts = time.time()
     if csv_writer_can and logging_active:
         csv_writer_can.writerow([ts, "EVENT", event, "", "", ""])
@@ -54,6 +73,8 @@ def write_event(event):
     if csv_writer_esp and logging_active:
         csv_writer_esp.writerow([ts, "EVENT", event, "", "", ""])
         csv_file_esp.flush()
+
+    push_message("EVENT", {"timestamp": ts, "event": event})
 
 # ============================================================
 # CAPTURE THREADS
@@ -83,19 +104,14 @@ def can_logger_thread():
                 ])
                 csv_file_can.flush()
 
-                # Add to recent messages for live view
                 decoded = decode_mqb_message(msg_id, data_hex)
-                msg_data = {
+                push_message("CAN", {
                     "timestamp": ts,
                     "id": msg_id,
                     "dlc": msg.dlc,
                     "data": data_hex,
                     "decoded": decoded
-                }
-                recent_messages.append(json.dumps(msg_data))
-
-                if len(recent_messages) > MAX_RECENT_MESSAGES:
-                    recent_messages.pop(0)
+                })
 
         except Exception as e:
             if logging_active:
@@ -155,32 +171,28 @@ def start_log():
         print(f"CAN log: {log_file_can}")
         print(f"ESP32 log: {log_file_esp}")
 
-        # Initialize CAN bus
         if can_bus is None:
             print("Initializing CAN bus on can0...")
             can_bus = can.interface.Bus(channel='can0', interface='socketcan')
             print("CAN bus initialized")
 
-        # Open CAN log file
         csv_file_can = open(log_file_can, "w", newline='')
         csv_writer_can = csv.writer(csv_file_can)
         csv_writer_can.writerow(["timestamp", "type", "id_or_event", "dlc", "data", "extended"])
 
-        # Open ESP32 log file
         csv_file_esp = open(log_file_esp, "w", newline='')
         csv_writer_esp = csv.writer(csv_file_esp)
         csv_writer_esp.writerow(["timestamp", "type", "message", "", "", ""])
 
         logging_active = True
 
-        # Write start event to both files
         ts = time.time()
         csv_writer_can.writerow([ts, "EVENT", "start_log", "", "", ""])
         csv_file_can.flush()
         csv_writer_esp.writerow([ts, "EVENT", "start_log", "", "", ""])
         csv_file_esp.flush()
+        push_message("EVENT", {"timestamp": ts, "event": "start_log"})
 
-        # Start capture threads
         log_thread_can = threading.Thread(target=can_logger_thread, daemon=True)
         log_thread_can.start()
 
@@ -210,7 +222,6 @@ def stop_log():
     if not logging_active:
         return jsonify({"status": "not_running"})
 
-    # Write stop event to both files before shutting down
     ts = time.time()
     if csv_writer_can:
         csv_writer_can.writerow([ts, "EVENT", "stop_log", "", "", ""])
@@ -218,6 +229,7 @@ def stop_log():
     if csv_writer_esp:
         csv_writer_esp.writerow([ts, "EVENT", "stop_log", "", "", ""])
         csv_file_esp.flush()
+    push_message("EVENT", {"timestamp": ts, "event": "stop_log"})
 
     logging_active = False
 
@@ -275,15 +287,19 @@ def status():
 
 @app.route("/stream")
 def stream():
-    """Server-sent events stream for real-time CAN messages"""
+    """Server-sent events stream for real-time CAN messages + event tags.
+    Tracks position via monotonic seq number rather than buffer length,
+    so it keeps delivering correctly even once the buffer is full and
+    old entries are being trimmed."""
     def generate():
-        last_index = 0
+        last_seq = 0
         while True:
-            if len(recent_messages) > last_index:
-                for msg in recent_messages[last_index:]:
-                    yield f"data: {msg}\n\n"
-                last_index = len(recent_messages)
-            time.sleep(0.05)  # 20Hz update rate
+            new_items = [m for m in recent_messages if m["seq"] > last_seq]
+            if new_items:
+                for m in new_items:
+                    yield f"data: {json.dumps(m)}\n\n"
+                last_seq = new_items[-1]["seq"]
+            time.sleep(0.05)  # 20Hz poll rate
 
     return app.response_class(generate(), mimetype='text/event-stream')
 
@@ -298,7 +314,6 @@ def decode_mqb_message(msg_id, data):
 
     decoded = None
 
-    # Instrument cluster responses
     if msg_id_int == 0x77E and len(data_bytes) >= 5:
         if data_bytes[0] == 0x05 and data_bytes[1] == 0x62 and data_bytes[2] == 0x22 and data_bytes[3] == 0xD1:
             rpm = ((data_bytes[4] << 8) | data_bytes[5]) / 4
@@ -307,7 +322,6 @@ def decode_mqb_message(msg_id, data):
             brightness = data_bytes[4]
             decoded = f"Ambient Light: {brightness}/255"
 
-    # Gearbox responses
     elif msg_id_int == 0x7E9 and len(data_bytes) >= 4:
         if data_bytes[0] == 0x04 and data_bytes[1] == 0x62 and data_bytes[2] == 0x38:
             if data_bytes[3] == 0x16:

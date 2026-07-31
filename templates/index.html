@@ -1,27 +1,79 @@
-
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>CANBus Pi</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-        h1 { color: #333; }
-        .section { background: white; padding: 15px; margin: 10px 0; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        button { padding: 10px 20px; margin: 5px; font-size: 14px; cursor: pointer; border: none; border-radius: 4px; background: #4CAF50; color: white; }
-        button:hover { background: #45a049; }
+        * { box-sizing: border-box; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 8px;
+            background: #f5f5f5;
+            font-size: 14px;
+        }
+        h1 { color: #333; font-size: 18px; margin: 4px 0 8px 0; }
+        h2 { font-size: 14px; margin: 0 0 6px 0; }
+        .section {
+            background: white;
+            padding: 10px;
+            margin: 6px 0;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        button {
+            padding: 8px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            background: #4CAF50;
+            color: white;
+        }
+        button:active { background: #388e3c; }
         button.stop { background: #f44336; }
-        button.stop:hover { background: #da190b; }
-        #status { display: inline-block; padding: 5px 10px; border-radius: 3px; margin-left: 10px; }
+        button.stop:active { background: #c62828; }
+        #status {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
         #status.active { background: #4CAF50; color: white; }
         #status.inactive { background: #ccc; color: #666; }
-        #messages { font-family: 'Courier New', monospace; font-size: 12px; max-height: 500px; overflow-y: auto; background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 4px; }
-        .msg { padding: 2px 0; border-bottom: 1px solid #333; }
+
+        .msgwin {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            height: 130px;
+            overflow-y: auto;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 6px;
+            border-radius: 4px;
+        }
+        .msg { padding: 1px 0; border-bottom: 1px solid #333; word-break: break-all; }
         .msg-id { color: #569cd6; font-weight: bold; }
         .msg-data { color: #ce9178; }
-        .msg-decoded { color: #4ec9b0; margin-left: 10px; }
-        .msg-time { color: #858585; font-size: 10px; }
-        .controls { display: flex; gap: 10px; flex-wrap: wrap; }
-        .stat { display: inline-block; margin-right: 20px; padding: 5px 10px; background: #e3f2fd; border-radius: 3px; }
+        .msg-decoded { color: #4ec9b0; margin-left: 6px; }
+        .msg-time { color: #858585; font-size: 9px; }
+        .msg-event { color: #ffd54f; font-weight: bold; }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+            gap: 5px;
+        }
+        .stat {
+            display: inline-block;
+            margin-right: 10px;
+            padding: 3px 8px;
+            background: #e3f2fd;
+            border-radius: 3px;
+            font-size: 11px;
+        }
+        #logFile { margin-top: 6px; font-size: 11px; color: #666; }
     </style>
 </head>
 <body>
@@ -29,16 +81,29 @@
 
     <div class="section">
         <h2>Logging <span id="status" class="inactive">Stopped</span></h2>
-        <div class="controls">
+        <div class="controls-grid">
             <button id="startBtn" onclick="startLog()">Start Log</button>
             <button class="stop" id="stopBtn" onclick="stopLog()">Stop Log</button>
         </div>
-        <div id="logFile" style="margin-top: 10px; font-size: 12px; color: #666;"></div>
+        <div id="logFile"></div>
+    </div>
+
+    <div class="section">
+        <h2>Live CAN Messages
+            <span class="stat">Rate: <span id="msgRate">0</span>/s</span>
+            <span class="stat">Total: <span id="msgCount">0</span></span>
+        </h2>
+        <div id="canMessages" class="msgwin"></div>
+    </div>
+
+    <div class="section">
+        <h2>Event Tags (button press confirmation)</h2>
+        <div id="eventMessages" class="msgwin"></div>
     </div>
 
     <div class="section">
         <h2>Tag Actions</h2>
-        <div class="controls">
+        <div class="controls-grid">
             <button onclick="send('lock')">🔒 Lock</button>
             <button onclick="send('unlock')">🔓 Unlock</button>
             <button onclick="send('ignition_on')">Ignition ON</button>
@@ -49,21 +114,10 @@
             <button onclick="send('neutral')">N Neutral</button>
             <button onclick="send('reverse')">R Reverse</button>
             <button onclick="send('park')">P Park</button>
-            <button onclick="send('park_pilot_button_toggle_on')">🅿️ Park Pilot Toggle ON</button>
-            <button onclick="send('park_pilot_button_toggle_off')">🅿️ Park Pilot Toggle OFF</button>
-            <button onclick="send('camera_stow')">📷 Camera Stow</button>
+            <button onclick="send('park_pilot_button_toggle_on')">🅿️ PP ON</button>
+            <button onclick="send('park_pilot_button_toggle_off')">🅿️ PP OFF</button>
+            <button onclick="send('camera_stow')">📷 Stow</button>
         </div>
-    </div>
-
-    <div class="section">
-        <h2>Live CAN Messages</h2>
-        <div style="margin-bottom: 10px;">
-            <span class="stat">Rate: <span id="msgRate">0</span> msg/s</span>
-            <span class="stat">Total: <span id="msgCount">0</span></span>
-            <button onclick="clearMessages()" style="background: #ff9800;">Clear</button>
-            <label><input type="checkbox" id="autoscroll" checked> Auto-scroll</label>
-        </div>
-        <div id="messages"></div>
     </div>
 
     <script>
@@ -77,7 +131,8 @@
                 headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({event:ev})
             });
-            addSystemMessage('Event tagged: ' + ev);
+            // No local echo needed - the server pushes this back down
+            // the SSE stream into the Event window for confirmation.
         }
 
         function startLog() {
@@ -90,7 +145,6 @@
                         if(data.log_file) {
                             document.getElementById('logFile').textContent = 'Log: ' + data.log_file.split('/').pop();
                         }
-                        addSystemMessage('Logging started');
                         startStream();
                     } else {
                         alert('Error: ' + (data.message || data.status));
@@ -105,7 +159,6 @@
                     document.getElementById('status').textContent = 'Stopped';
                     document.getElementById('status').className = 'inactive';
                     document.getElementById('logFile').textContent = '';
-                    addSystemMessage('Logging stopped');
                     stopStream();
                 });
         }
@@ -116,7 +169,11 @@
             eventSource.onmessage = function(e) {
                 try {
                     const msg = JSON.parse(e.data);
-                    addMessage(msg);
+                    if (msg.type === 'EVENT') {
+                        addEventMessage(msg);
+                    } else {
+                        addCanMessage(msg);
+                    }
                 } catch(err) {
                     console.error('Parse error:', err);
                 }
@@ -133,48 +190,42 @@
             }
         }
 
-        function addMessage(msg) {
-            const container = document.getElementById('messages');
+        function addCanMessage(msg) {
+            const container = document.getElementById('canMessages');
             const div = document.createElement('div');
             div.className = 'msg';
-            
+
             const time = new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', {hour12:false, fractionalSecondDigits: 3});
-            
+
             div.innerHTML = `<span class="msg-time">${time}</span> <span class="msg-id">${msg.id}</span> [${msg.dlc}] <span class="msg-data">${msg.data}</span>${msg.decoded ? '<span class="msg-decoded">→ ' + msg.decoded + '</span>' : ''}`;
-            
+
             container.appendChild(div);
             msgCount++;
             document.getElementById('msgCount').textContent = msgCount;
-            
-            // Auto-scroll
-            if(document.getElementById('autoscroll').checked) {
-                container.scrollTop = container.scrollHeight;
-            }
-            
-            // Limit displayed messages
-            while(container.children.length > 1000) {
+
+            container.scrollTop = container.scrollHeight;
+
+            // Keep window small - only need enough to see flow is live
+            while(container.children.length > 60) {
                 container.removeChild(container.firstChild);
             }
         }
 
-        function addSystemMessage(text) {
-            const container = document.getElementById('messages');
+        function addEventMessage(msg) {
+            const container = document.getElementById('eventMessages');
             const div = document.createElement('div');
             div.className = 'msg';
-            div.style.color = '#ffa500';
-            div.innerHTML = `<span class="msg-time">${new Date().toLocaleTimeString('en-US', {hour12:false})}</span> <b>SYSTEM:</b> ${text}`;
-            container.appendChild(div);
-            if(document.getElementById('autoscroll').checked) {
-                container.scrollTop = container.scrollHeight;
-            }
-        }
 
-        function clearMessages() {
-            document.getElementById('messages').innerHTML = '';
-            msgCount = 0;
-            lastCount = 0;
-            document.getElementById('msgCount').textContent = '0';
-            document.getElementById('msgRate').textContent = '0';
+            const time = new Date(msg.timestamp * 1000).toLocaleTimeString('en-US', {hour12:false, fractionalSecondDigits: 3});
+
+            div.innerHTML = `<span class="msg-time">${time}</span> <span class="msg-event">${msg.event}</span>`;
+
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+
+            while(container.children.length > 40) {
+                container.removeChild(container.firstChild);
+            }
         }
 
         // Update message rate every second
