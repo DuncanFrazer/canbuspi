@@ -2,6 +2,7 @@
 # CANBus Pi Project
 
 This project provides a Raspberry Pi–based CAN bus sniffer and manual event logging tool, with a browser‑based UI.
+Serial-log version : all messages are delivered over serial, no direct canbus connection. The Pi will be performing the key task of logging messages to a file, and recording events such as unlock/lock of the car. This vesion is designed to support a matching esp32 app that is monitoring the canbus and will push all messages out of its serial port. The evolution of this project allows the esp32 and its canbus interface to be installed in the car, but the pi can be removed and simply connected via usb to the esp32.
 
 ## Main Capabilities
 - Start/stop data logging to CSV
@@ -18,62 +19,7 @@ This project provides a Raspberry Pi–based CAN bus sniffer and manual event lo
 ### Install Dependencies
 ```bash
 sudo apt update
-sudo apt install python3-flask python3-can
-```
-
-### Configure CAN Interface for Modern Raspberry Pi OS
-
-1. **Load CAN kernel modules on boot:**
-```bash
-sudo nano /etc/modules-load.d/can.conf
-```
-Add these lines:
-```
-can
-can_raw
-mcp251x
-```
-
-2. **Create systemd service for CAN interface setup:**
-```bash
-sudo nano /etc/systemd/system/can0-setup.service
-```
-Add:
-```ini
-[Unit]
-Description=Setup CAN0 Interface
-After=systemd-modules-load.service
-Before=network.target
-Before=canbuspi.service
-
-[Service]
-Type=oneshot
-ExecStart=/sbin/ip link set can0 type can bitrate 500000
-ExecStart=/sbin/ip link set can0 up
-ExecStop=/sbin/ip link set can0 down
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-```
-
-3. **Enable and start the CAN interface service:**
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable can0-setup.service
-sudo systemctl start can0-setup.service
-```
-
-4. **Verify CAN interface:**
-```bash
-ip link show can0
-# Should show can0 in UP state
-```
-
-5. **Test CAN communication (optional):**
-```bash
-candump can0
-# Press Ctrl+C to stop
+sudo apt install python3-flask
 ```
 
 ### Create Systemd Service for Auto-Start
@@ -89,7 +35,6 @@ Add:
 [Unit]
 Description=CANBus Pi Logger
 After=network.target
-After=can0-setup.service
 
 [Service]
 Type=simple
@@ -126,61 +71,12 @@ sudo reboot
 
 3. **Verify everything works after reboot:**
 ```bash
-ip link show can0
-sudo systemctl status can0-setup.service
 sudo systemctl status canbuspi.service
 curl http://localhost:5000
 ```
 
 4. **Access the web interface:**
 Navigate to `http://<pi-ip-address>:5000`
-
-## Hardware Requirements
-
-- Raspberry Pi (tested with Pi Zero 2 W)
-- MCP2515 CAN bus module (SPI interface)
-- CAN bus connection to vehicle
-- Proper CAN bus termination (120Ω resistors)
-
-## Troubleshooting
-
-### CAN Interface Issues
-
-**Interface shows UP but candump says "network is down":**
-```bash
-sudo ip link set can0 down
-sudo ip link set can0 type can bitrate 500000
-sudo ip link set can0 up
-```
-
-**No CAN messages when car is locked:**
-- Modern cars put CAN bus to sleep when locked
-- Unlock car or turn on ignition to see traffic
-
-**MCP2515 not detected:**
-```bash
-dmesg | grep -i mcp
-lsmod | grep mcp
-```
-
-**Check SPI connection:**
-```bash
-ls /dev/spi*
-```
-
-### Service Issues
-
-**Check service status:**
-```bash
-sudo systemctl status can0-setup.service
-sudo systemctl status canbuspi.service
-```
-
-**View service logs:**
-```bash
-sudo journalctl -u can0-setup.service -n 20
-sudo journalctl -u canbuspi.service -n 20
-```
 
 ## Web Interface Features
 
